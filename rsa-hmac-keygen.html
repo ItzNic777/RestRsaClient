@@ -32,6 +32,24 @@
         padding: 16px;
         margin-bottom: 20px;
       }
+      details.collapsible {
+        border: 1px solid #d9dce6;
+        border-radius: 8px;
+        padding: 12px 16px;
+        margin-bottom: 20px;
+        background: #fff;
+      }
+      details.collapsible > summary {
+        cursor: pointer;
+        font-weight: 700;
+        list-style: none;
+      }
+      details.collapsible > summary::-webkit-details-marker {
+        display: none;
+      }
+      .collapsible-body {
+        margin-top: 12px;
+      }
       label {
         display: block;
         font-weight: 600;
@@ -97,8 +115,9 @@
       <div class="status" id="storageStatus">Lade gespeicherte Daten…</div>
       <div class="status" id="clipboardStatus">Zwischenablage-Status wird geprüft…</div>
 
-      <fieldset>
-        <legend><strong>1) RSA Keypaar (optional)</strong></legend>
+      <details class="collapsible" open>
+        <summary>1) RSA Keypaar (optional)</summary>
+        <div class="collapsible-body">
         <p>
           Erzeugt wird ein Keypair mit 3072&nbsp;Bit. Nach der Generierung werden Public
           und Private Key Base64-kodiert und im Browser gespeichert.
@@ -126,7 +145,8 @@
             </div>
           </div>
         </div>
-      </fieldset>
+        </div>
+      </details>
 
       <fieldset>
         <legend><strong>2) Datenpasswort speichern</strong></legend>
@@ -156,6 +176,41 @@
           </div>
         </div>
       </fieldset>
+
+      <fieldset>
+        <legend><strong>4) HTTPS Request Handling</strong></legend>
+        <div class="row">
+          <div>
+            <label for="requestUsername">Username</label>
+            <input type="text" id="requestUsername" placeholder="z.B. scr_user" />
+          </div>
+          <div>
+            <label for="requestPassword">Password</label>
+            <input type="text" id="requestPassword" placeholder="z.B. scr_password" />
+          </div>
+        </div>
+        <label for="requestUrl">URL</label>
+        <input type="text" id="requestUrl" placeholder="https://example/api" />
+        <div class="row">
+          <label>
+            <input type="checkbox" id="encryptResponse" />
+            Encrypt Response (Public Key + Keyhash mitsenden)
+          </label>
+        </div>
+        <div class="row">
+          <button id="sendRequest">Request senden</button>
+        </div>
+        <div class="row">
+          <div>
+            <label for="responsePlain">JSON Response (unencrypted)</label>
+            <textarea id="responsePlain" readonly></textarea>
+          </div>
+          <div>
+            <label for="responseDecrypted">JSON Response (decrypted)</label>
+            <textarea id="responseDecrypted" readonly></textarea>
+          </div>
+        </div>
+      </fieldset>
     </main>
 
     <script>
@@ -163,6 +218,11 @@
         publicKey: "rest-rsa-public-key",
         privateKey: "rest-rsa-private-key",
         dataPassword: "rest-rsa-data-password",
+        hmacOutput: "rest-rsa-hmac-output",
+        requestUsername: "rest-rsa-request-username",
+        requestPassword: "rest-rsa-request-password",
+        requestUrl: "rest-rsa-request-url",
+        encryptResponse: "rest-rsa-request-encrypt-response",
       };
 
       const elements = {
@@ -173,6 +233,12 @@
         logOutput: document.getElementById("logOutput"),
         storageStatus: document.getElementById("storageStatus"),
         clipboardStatus: document.getElementById("clipboardStatus"),
+        requestUsername: document.getElementById("requestUsername"),
+        requestPassword: document.getElementById("requestPassword"),
+        requestUrl: document.getElementById("requestUrl"),
+        encryptResponse: document.getElementById("encryptResponse"),
+        responsePlain: document.getElementById("responsePlain"),
+        responseDecrypted: document.getElementById("responseDecrypted"),
       };
 
       const logLines = [];
@@ -255,6 +321,14 @@
         elements.publicKey.value = localStorage.getItem(storageKeys.publicKey) || "";
         elements.privateKey.value = localStorage.getItem(storageKeys.privateKey) || "";
         elements.dataPassword.value = localStorage.getItem(storageKeys.dataPassword) || "";
+        elements.hmacOutput.value = localStorage.getItem(storageKeys.hmacOutput) || "";
+        elements.requestUsername.value =
+          localStorage.getItem(storageKeys.requestUsername) || "";
+        elements.requestPassword.value =
+          localStorage.getItem(storageKeys.requestPassword) || "";
+        elements.requestUrl.value = localStorage.getItem(storageKeys.requestUrl) || "";
+        elements.encryptResponse.checked =
+          localStorage.getItem(storageKeys.encryptResponse) === "true";
         refreshStorageStatus();
       };
 
@@ -341,7 +415,46 @@
         appendLog("HMAC Step 5: Ergebnis Base64 kodieren.");
         const hmacBase64 = arrayBufferToBase64(hmacBytes);
         elements.hmacOutput.value = hmacBase64;
+        localStorage.setItem(storageKeys.hmacOutput, hmacBase64);
         appendLog(`HMAC Base64: ${hmacBase64}`);
+      };
+
+      const buildRequestUrl = () => {
+        const urlValue = elements.requestUrl.value.trim();
+        if (!urlValue) {
+          throw new Error("Bitte eine URL angeben.");
+        }
+        const url = new URL(urlValue);
+        if (elements.encryptResponse.checked) {
+          const publicKeyBase64 = localStorage.getItem(storageKeys.publicKey) || "";
+          const hmacBase64 = localStorage.getItem(storageKeys.hmacOutput) || "";
+          if (!publicKeyBase64 || !hmacBase64) {
+            throw new Error("Public Key und HMAC müssen gespeichert sein.");
+          }
+          url.searchParams.set("pubkey", publicKeyBase64);
+          url.searchParams.set("keyhash", hmacBase64);
+        }
+        return url;
+      };
+
+      const sendRequest = async () => {
+        elements.responsePlain.value = "";
+        elements.responseDecrypted.value = "";
+        const url = buildRequestUrl();
+        const username = elements.requestUsername.value.trim();
+        const password = elements.requestPassword.value;
+        const headers = {};
+        if (username || password) {
+          headers.Authorization = `Basic ${btoa(`${username}:${password}`)}`;
+        }
+        const response = await fetch(url.toString(), { method: "GET", headers });
+        const responseText = await response.text();
+        elements.responsePlain.value = responseText;
+        if (!response.ok) {
+          appendLog(`Request Fehler (${response.status}): ${response.statusText}`);
+          return;
+        }
+        appendLog("Request erfolgreich abgeschlossen.");
       };
 
       document.getElementById("generateKeys").addEventListener("click", () => {
@@ -433,6 +546,28 @@
         calculateHmac().catch((error) => {
           appendLog(`Fehler bei der HMAC-Berechnung: ${error.message}`);
         });
+      });
+
+      document.getElementById("sendRequest").addEventListener("click", () => {
+        sendRequest().catch((error) => {
+          appendLog(`Request fehlgeschlagen: ${error.message}`);
+        });
+      });
+
+      elements.requestUsername.addEventListener("input", () => {
+        localStorage.setItem(storageKeys.requestUsername, elements.requestUsername.value);
+      });
+
+      elements.requestPassword.addEventListener("input", () => {
+        localStorage.setItem(storageKeys.requestPassword, elements.requestPassword.value);
+      });
+
+      elements.requestUrl.addEventListener("input", () => {
+        localStorage.setItem(storageKeys.requestUrl, elements.requestUrl.value);
+      });
+
+      elements.encryptResponse.addEventListener("change", () => {
+        localStorage.setItem(storageKeys.encryptResponse, elements.encryptResponse.checked);
       });
 
       document.addEventListener("keydown", handlePasteShortcut);
