@@ -95,6 +95,7 @@
       </p>
 
       <div class="status" id="storageStatus">Lade gespeicherte Daten…</div>
+      <div class="status" id="clipboardStatus">Zwischenablage-Status wird geprüft…</div>
 
       <fieldset>
         <legend><strong>1) RSA Keypaar (optional)</strong></legend>
@@ -102,6 +103,9 @@
           Erzeugt wird ein Keypair mit 3072&nbsp;Bit. Nach der Generierung werden Public
           und Private Key Base64-kodiert und im Browser gespeichert.
         </p>
+        <button class="secondary" id="requestClipboardPermission" type="button">
+          Zwischenablageberechtigung anfordern
+        </button>
         <button id="generateKeys">RSA-Keypair generieren &amp; speichern</button>
         <button class="secondary" id="clearKeys" type="button">Gespeicherte Keys löschen</button>
         <div class="row">
@@ -168,6 +172,7 @@
         hmacOutput: document.getElementById("hmacOutput"),
         logOutput: document.getElementById("logOutput"),
         storageStatus: document.getElementById("storageStatus"),
+        clipboardStatus: document.getElementById("clipboardStatus"),
       };
 
       const logLines = [];
@@ -203,6 +208,47 @@
         }, Private Key ${hasPrivate ? "✅" : "❌"}, Datenpasswort ${
           hasPassword ? "✅" : "❌"
         }.`;
+      };
+
+      const setClipboardStatus = (message) => {
+        elements.clipboardStatus.textContent = message;
+      };
+
+      const updateClipboardPermissionStatus = async () => {
+        if (!navigator.permissions) {
+          setClipboardStatus(
+            "Zwischenablageberechtigung: Browser unterstützt keine Permission-Abfrage."
+          );
+          return;
+        }
+        try {
+          const readPermission = await navigator.permissions.query({
+            name: "clipboard-read",
+          });
+          const writePermission = await navigator.permissions.query({
+            name: "clipboard-write",
+          });
+          setClipboardStatus(
+            `Zwischenablageberechtigung: Lesen ${readPermission.state}, Schreiben ${writePermission.state}.`
+          );
+        } catch (error) {
+          setClipboardStatus(
+            "Zwischenablageberechtigung: Status konnte nicht ermittelt werden (bei file:// häufig eingeschränkt)."
+          );
+        }
+      };
+
+      const requestClipboardPermission = async () => {
+        try {
+          await navigator.clipboard.writeText("");
+          await updateClipboardPermissionStatus();
+          appendLog("Zwischenablageberechtigung angefragt (Prompt ggf. bestätigt).");
+        } catch (error) {
+          appendLog(
+            `Zwischenablageberechtigung konnte nicht angefragt werden: ${error.message}`
+          );
+          await updateClipboardPermissionStatus();
+        }
       };
 
       const loadStoredValues = () => {
@@ -346,6 +392,27 @@
         }
       };
 
+      const handlePasteShortcut = (event) => {
+        const isPaste = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v";
+        if (!isPaste) {
+          return;
+        }
+        const activeElement = document.activeElement;
+        if (activeElement === elements.publicKey) {
+          event.preventDefault();
+          pasteFromClipboard(storageKeys.publicKey, elements.publicKey, "Public Key");
+        } else if (activeElement === elements.privateKey) {
+          event.preventDefault();
+          pasteFromClipboard(storageKeys.privateKey, elements.privateKey, "Private Key");
+        }
+      };
+
+      document
+        .getElementById("requestClipboardPermission")
+        .addEventListener("click", () => {
+          requestClipboardPermission();
+        });
+
       document.getElementById("copyPublicKey").addEventListener("click", () => {
         copyToClipboard(elements.publicKey.value, "Public Key");
       });
@@ -368,7 +435,10 @@
         });
       });
 
+      document.addEventListener("keydown", handlePasteShortcut);
+
       loadStoredValues();
+      updateClipboardPermissionStatus();
     </script>
   </body>
 </html>
