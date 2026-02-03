@@ -107,10 +107,16 @@
           <div>
             <label for="publicKey">Public Key (Base64, SPKI)</label>
             <textarea id="publicKey" readonly></textarea>
+            <div class="row">
+              <button class="secondary" id="copyPublicKey" type="button">Public Key kopieren</button>
+            </div>
           </div>
           <div>
             <label for="privateKey">Private Key (Base64, PKCS8)</label>
             <textarea id="privateKey" readonly></textarea>
+            <div class="row">
+              <button class="secondary" id="copyPrivateKey" type="button">Private Key kopieren</button>
+            </div>
           </div>
         </div>
       </fieldset>
@@ -305,6 +311,27 @@
 
       document.getElementById("clearKeys").addEventListener("click", () => {
         clearKeys();
+      });
+
+      const copyToClipboard = async (value, label) => {
+        if (!value) {
+          appendLog(`${label} ist leer, nichts zu kopieren.`);
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(value);
+          appendLog(`${label} in die Zwischenablage kopiert.`);
+        } catch (error) {
+          appendLog(`Fehler beim Kopieren von ${label}: ${error.message}`);
+        }
+      };
+
+      document.getElementById("copyPublicKey").addEventListener("click", () => {
+        copyToClipboard(elements.publicKey.value, "Public Key");
+      });
+
+      document.getElementById("copyPrivateKey").addEventListener("click", () => {
+        copyToClipboard(elements.privateKey.value, "Private Key");
       });
 
       document.getElementById("calculateHmac").addEventListener("click", () => {
