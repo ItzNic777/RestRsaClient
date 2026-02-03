@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>REST RSA Client Vorbereitung</title>
+    <style>
+      :root {
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        color: #1a1a1a;
+        background: #f6f7fb;
+      }
+      body {
+        margin: 0;
+        padding: 32px;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        background: white;
+        padding: 24px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+      h1 {
+        margin-top: 0;
+      }
+      fieldset {
+        border: 1px solid #d9dce6;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      input[type="text"],
+      textarea {
+        width: 100%;
+        padding: 10px;
+        border-radius: 6px;
+        border: 1px solid #cbd5f5;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        box-sizing: border-box;
+      }
+      textarea {
+        min-height: 110px;
+        resize: vertical;
+      }
+      button {
+        padding: 10px 18px;
+        border: none;
+        border-radius: 6px;
+        background: #2563eb;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #475569;
+      }
+      .row {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+      .row > * {
+        flex: 1 1 220px;
+      }
+      .status {
+        padding: 12px;
+        background: #f1f5f9;
+        border-radius: 6px;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 16px;
+      }
+      code {
+        background: #eef2ff;
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Serverless Vorbereitung eines REST-Calls</h1>
+      <p>
+        Diese Seite erstellt optional ein RSA-Keypair mit 3072&nbsp;Bit,
+        speichert es im Browser-Store und berechnet anschließend einen HMAC
+        über den Public Key (Base64) mit dem <strong>Datenpasswort</strong> als Secret.
+      </p>
+
+      <div class="status" id="storageStatus">Lade gespeicherte Daten…</div>
+
+      <fieldset>
+        <legend><strong>1) RSA Keypaar (optional)</strong></legend>
+        <p>
+          Erzeugt wird ein Keypair mit 3072&nbsp;Bit. Nach der Generierung werden Public
+          und Private Key Base64-kodiert und im Browser gespeichert.
+        </p>
+        <button id="generateKeys">RSA-Keypair generieren &amp; speichern</button>
+        <button class="secondary" id="clearKeys" type="button">Gespeicherte Keys löschen</button>
+        <div class="row">
+          <div>
+            <label for="publicKey">Public Key (Base64, SPKI)</label>
+            <textarea id="publicKey" readonly></textarea>
+            <div class="row">
+              <button class="secondary" id="copyPublicKey" type="button">Public Key kopieren</button>
+            </div>
+          </div>
+          <div>
+            <label for="privateKey">Private Key (Base64, PKCS8)</label>
+            <textarea id="privateKey" readonly></textarea>
+            <div class="row">
+              <button class="secondary" id="copyPrivateKey" type="button">Private Key kopieren</button>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend><strong>2) Datenpasswort speichern</strong></legend>
+        <label for="dataPassword">Datenpasswort</label>
+        <input type="text" id="dataPassword" placeholder="z.B. MeinGeheimnis" />
+        <div class="row">
+          <button id="savePassword">Passwort speichern</button>
+          <button class="secondary" id="clearPassword" type="button">Passwort löschen</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend><strong>3) HMAC über Public Key berechnen</strong></legend>
+        <p>
+          Der HMAC nutzt <code>HMAC-SHA256</code> mit dem Datenpasswort als Secret. Grundlage
+          ist der Base64-encodierte Public Key (SPKI), der zuvor gespeichert wurde.
+        </p>
+        <button id="calculateHmac">HMAC berechnen</button>
+        <div class="row">
+          <div>
+            <label for="hmacOutput">HMAC (Base64)</label>
+            <textarea id="hmacOutput" readonly></textarea>
+          </div>
+          <div>
+            <label for="logOutput">Ablauf-Log</label>
+            <textarea id="logOutput" readonly></textarea>
+          </div>
+        </div>
+      </fieldset>
+    </main>
+
+    <script>
+      const storageKeys = {
+        publicKey: "rest-rsa-public-key",
+        privateKey: "rest-rsa-private-key",
+        dataPassword: "rest-rsa-data-password",
+      };
+
+      const elements = {
+        publicKey: document.getElementById("publicKey"),
+        privateKey: document.getElementById("privateKey"),
+        dataPassword: document.getElementById("dataPassword"),
+        hmacOutput: document.getElementById("hmacOutput"),
+        logOutput: document.getElementById("logOutput"),
+        storageStatus: document.getElementById("storageStatus"),
+      };
+
+      const logLines = [];
+      const appendLog = (message) => {
+        logLines.push(message);
+        elements.logOutput.value = logLines.join("\n");
+      };
+
+      const arrayBufferToBase64 = (buffer) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        bytes.forEach((b) => {
+          binary += String.fromCharCode(b);
+        });
+        return btoa(binary);
+      };
+
+      const base64ToArrayBuffer = (base64) => {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes.buffer;
+      };
+
+      const refreshStorageStatus = () => {
+        const hasPublic = Boolean(localStorage.getItem(storageKeys.publicKey));
+        const hasPrivate = Boolean(localStorage.getItem(storageKeys.privateKey));
+        const hasPassword = Boolean(localStorage.getItem(storageKeys.dataPassword));
+        elements.storageStatus.textContent = `Gespeichert: Public Key ${
+          hasPublic ? "✅" : "❌"
+        }, Private Key ${hasPrivate ? "✅" : "❌"}, Datenpasswort ${
+          hasPassword ? "✅" : "❌"
+        }.`;
+      };
+
+      const loadStoredValues = () => {
+        elements.publicKey.value = localStorage.getItem(storageKeys.publicKey) || "";
+        elements.privateKey.value = localStorage.getItem(storageKeys.privateKey) || "";
+        elements.dataPassword.value = localStorage.getItem(storageKeys.dataPassword) || "";
+        refreshStorageStatus();
+      };
+
+      const generateAndStoreKeys = async () => {
+        appendLog("Generiere RSA 3072 Keypair…");
+        const keypair = await crypto.subtle.generateKey(
+          {
+            name: "RSA-OAEP",
+            modulusLength: 3072,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: "SHA-256",
+          },
+          true,
+          ["encrypt", "decrypt"]
+        );
+
+        const publicKeyBuffer = await crypto.subtle.exportKey("spki", keypair.publicKey);
+        const privateKeyBuffer = await crypto.subtle.exportKey("pkcs8", keypair.privateKey);
+
+        const publicKeyBase64 = arrayBufferToBase64(publicKeyBuffer);
+        const privateKeyBase64 = arrayBufferToBase64(privateKeyBuffer);
+
+        localStorage.setItem(storageKeys.publicKey, publicKeyBase64);
+        localStorage.setItem(storageKeys.privateKey, privateKeyBase64);
+
+        elements.publicKey.value = publicKeyBase64;
+        elements.privateKey.value = privateKeyBase64;
+
+        appendLog("Public Key (Base64) gespeichert.");
+        appendLog("Private Key (Base64) gespeichert.");
+        refreshStorageStatus();
+      };
+
+      const savePassword = () => {
+        const value = elements.dataPassword.value.trim();
+        localStorage.setItem(storageKeys.dataPassword, value);
+        appendLog("Datenpasswort gespeichert.");
+        refreshStorageStatus();
+      };
+
+      const clearPassword = () => {
+        localStorage.removeItem(storageKeys.dataPassword);
+        elements.dataPassword.value = "";
+        appendLog("Datenpasswort entfernt.");
+        refreshStorageStatus();
+      };
+
+      const clearKeys = () => {
+        localStorage.removeItem(storageKeys.publicKey);
+        localStorage.removeItem(storageKeys.privateKey);
+        elements.publicKey.value = "";
+        elements.privateKey.value = "";
+        appendLog("RSA Keys entfernt.");
+        refreshStorageStatus();
+      };
+
+      const calculateHmac = async () => {
+        const dataPassword = localStorage.getItem(storageKeys.dataPassword) || "";
+        const publicKeyBase64 = localStorage.getItem(storageKeys.publicKey) || "";
+
+        if (!dataPassword || !publicKeyBase64) {
+          appendLog("Bitte zuerst Datenpasswort und Public Key speichern.");
+          return;
+        }
+
+        appendLog("HMAC Step 1: Datenpasswort als UTF-8 Bytes.");
+        const dataPasswordBytes = new TextEncoder().encode(dataPassword);
+
+        appendLog("HMAC Step 2: Public Key (Base64) dekodieren.");
+        const publicKeyBytes = new Uint8Array(base64ToArrayBuffer(publicKeyBase64));
+
+        appendLog("HMAC Step 3: HMAC-SHA256 Key erstellen.");
+        const hmacKey = await crypto.subtle.importKey(
+          "raw",
+          dataPasswordBytes,
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"]
+        );
+
+        appendLog("HMAC Step 4: HMAC berechnen.");
+        const hmacBytes = await crypto.subtle.sign("HMAC", hmacKey, publicKeyBytes);
+
+        appendLog("HMAC Step 5: Ergebnis Base64 kodieren.");
+        const hmacBase64 = arrayBufferToBase64(hmacBytes);
+        elements.hmacOutput.value = hmacBase64;
+        appendLog(`HMAC Base64: ${hmacBase64}`);
+      };
+
+      document.getElementById("generateKeys").addEventListener("click", () => {
+        generateAndStoreKeys().catch((error) => {
+          appendLog(`Fehler bei der Key-Generierung: ${error.message}`);
+        });
+      });
+
+      document.getElementById("savePassword").addEventListener("click", () => {
+        savePassword();
+      });
+
+      document.getElementById("clearPassword").addEventListener("click", () => {
+        clearPassword();
+      });
+
+      document.getElementById("clearKeys").addEventListener("click", () => {
+        clearKeys();
+      });
+
+      const copyToClipboard = async (value, label) => {
+        if (!value) {
+          appendLog(`${label} ist leer, nichts zu kopieren.`);
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(value);
+          appendLog(`${label} in die Zwischenablage kopiert.`);
+        } catch (error) {
+          appendLog(`Fehler beim Kopieren von ${label}: ${error.message}`);
+        }
+      };
+
+      document.getElementById("copyPublicKey").addEventListener("click", () => {
+        copyToClipboard(elements.publicKey.value, "Public Key");
+      });
+
+      document.getElementById("copyPrivateKey").addEventListener("click", () => {
+        copyToClipboard(elements.privateKey.value, "Private Key");
+      });
+
+      document.getElementById("calculateHmac").addEventListener("click", () => {
+        calculateHmac().catch((error) => {
+          appendLog(`Fehler bei der HMAC-Berechnung: ${error.message}`);
+        });
+      });
+
+      loadStoredValues();
+    </script>
+  </body>
+</html>
