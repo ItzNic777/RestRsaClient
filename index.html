@@ -12,10 +12,11 @@
       }
       body {
         margin: 0;
-        padding: 32px;
+        padding: 2.5vw;
       }
       main {
-        max-width: 980px;
+        width: 95%;
+        max-width: 95vw;
         margin: 0 auto;
         background: white;
         padding: 24px;
@@ -109,6 +110,7 @@
             <textarea id="publicKey" readonly></textarea>
             <div class="row">
               <button class="secondary" id="copyPublicKey" type="button">Public Key kopieren</button>
+              <button class="secondary" id="pastePublicKey" type="button">Public Key einfügen</button>
             </div>
           </div>
           <div>
@@ -116,6 +118,7 @@
             <textarea id="privateKey" readonly></textarea>
             <div class="row">
               <button class="secondary" id="copyPrivateKey" type="button">Private Key kopieren</button>
+              <button class="secondary" id="pastePrivateKey" type="button">Private Key einfügen</button>
             </div>
           </div>
         </div>
@@ -326,12 +329,37 @@
         }
       };
 
+      const pasteFromClipboard = async (storageKey, element, label) => {
+        try {
+          const text = await navigator.clipboard.readText();
+          const value = text.trim();
+          if (!value) {
+            appendLog(`${label} ist leer, nichts einzufügen.`);
+            return;
+          }
+          element.value = value;
+          localStorage.setItem(storageKey, value);
+          appendLog(`${label} eingefügt und gespeichert.`);
+          refreshStorageStatus();
+        } catch (error) {
+          appendLog(`Fehler beim Einfügen von ${label}: ${error.message}`);
+        }
+      };
+
       document.getElementById("copyPublicKey").addEventListener("click", () => {
         copyToClipboard(elements.publicKey.value, "Public Key");
       });
 
       document.getElementById("copyPrivateKey").addEventListener("click", () => {
         copyToClipboard(elements.privateKey.value, "Private Key");
+      });
+
+      document.getElementById("pastePublicKey").addEventListener("click", () => {
+        pasteFromClipboard(storageKeys.publicKey, elements.publicKey, "Public Key");
+      });
+
+      document.getElementById("pastePrivateKey").addEventListener("click", () => {
+        pasteFromClipboard(storageKeys.privateKey, elements.privateKey, "Private Key");
       });
 
       document.getElementById("calculateHmac").addEventListener("click", () => {
