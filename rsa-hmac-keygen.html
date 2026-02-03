@@ -200,6 +200,10 @@
         <div class="row">
           <button id="sendRequest">Request senden</button>
         </div>
+        <p>
+          Hinweis: Bei lokalen Dateien (file://) kann der Browser den Request wegen CORS
+          blockieren. In dem Fall wird unten ein <code>curl</code>-Beispiel angezeigt.
+        </p>
         <div class="row">
           <div>
             <label for="responsePlain">JSON Response (unencrypted)</label>
@@ -447,14 +451,28 @@
         if (username || password) {
           headers.Authorization = `Basic ${btoa(`${username}:${password}`)}`;
         }
-        const response = await fetch(url.toString(), { method: "GET", headers });
-        const responseText = await response.text();
-        elements.responsePlain.value = responseText;
-        if (!response.ok) {
-          appendLog(`Request Fehler (${response.status}): ${response.statusText}`);
-          return;
+        const curlAuth = username || password ? `-u "${username}:${password}" ` : "";
+        const curlCommand = `curl ${curlAuth}"${url.toString()}"`;
+        try {
+          const response = await fetch(url.toString(), { method: "GET", headers });
+          const responseText = await response.text();
+          elements.responsePlain.value = responseText;
+          if (!response.ok) {
+            appendLog(`Request Fehler (${response.status}): ${response.statusText}`);
+            return;
+          }
+          appendLog("Request erfolgreich abgeschlossen.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          appendLog(`Request fehlgeschlagen (CORS/Netzwerk): ${message}`);
+          elements.responsePlain.value = [
+            "Request konnte im Browser nicht ausgeführt werden.",
+            "Mögliche Ursache: CORS-Policy (z.B. bei file:// Ursprung).",
+            "",
+            "Vorschlag: Request per curl ausführen:",
+            curlCommand,
+          ].join("\n");
         }
-        appendLog("Request erfolgreich abgeschlossen.");
       };
 
       document.getElementById("generateKeys").addEventListener("click", () => {
